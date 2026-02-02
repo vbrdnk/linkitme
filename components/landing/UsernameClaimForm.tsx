@@ -1,7 +1,10 @@
 'use client';
 
-import { useUsernameCheck } from '@/hooks/useUsernameCheck';
+import { useRouter } from 'next/navigation';
+
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+
+import { useUsernameCheck } from '@/hooks/useUsernameCheck';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +18,7 @@ import { Input } from '@/components/ui/input';
  * - Disabled state until valid and available
  */
 export function UsernameClaimForm() {
+  const router = useRouter();
   const { value, isValid, isChecking, isAvailable, error, handleUsernameChange } =
     useUsernameCheck();
 
@@ -23,9 +27,7 @@ export function UsernameClaimForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (canSubmit) {
-      // TODO: Navigate to signup page with username pre-filled
-      console.log('Claiming username:', value);
-      alert(`Great! "${value}" is available. Redirecting to signup...`);
+      router.push(`/signup?username=${encodeURIComponent(value)}`);
     }
   };
 

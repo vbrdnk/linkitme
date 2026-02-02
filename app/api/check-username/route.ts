@@ -2,34 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import type { CheckUsernameResponse } from '@/types/landing';
 
+import { createClient } from '@/lib/supabase/server';
 import { normalizeUsername, validateUsername } from '@/lib/validation';
 
 /**
- * Mock list of taken usernames
- * In production, this would query a database
- */
-const TAKEN_USERNAMES = [
-  'admin',
-  'administrator',
-  'root',
-  'test',
-  'demo',
-  'user',
-  'support',
-  'help',
-  'info',
-  'contact',
-  'sales',
-  'marketing',
-  'api',
-  'www',
-  'mail',
-  'linkitme',
-];
-
-/**
  * GET /api/check-username?username=<username>
- * Checks if a username is available
+ * Checks if a username is available using Supabase
  */
 export async function GET(request: NextRequest) {
   try {
@@ -59,17 +37,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Check if username is taken (case-insensitive)
+    // Check username availability using Supabase RPC
     const normalizedUsername = normalizeUsername(username);
-    const isTaken = TAKEN_USERNAMES.includes(normalizedUsername);
+    const supabase = await createClient();
 
-    // Simulate network delay for more realistic UX
-    await new Promise(resolve => setTimeout(resolve, 300));
+    const { data: isAvailable, error } = await supabase.rpc('is_username_available', {
+      check_username: normalizedUsername,
+    });
+
+    if (error) {
+      console.error('Supabase error checking username:', error);
+      return NextResponse.json<CheckUsernameResponse>(
+        {
+          available: false,
+          message: 'Unable to check username availability',
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json<CheckUsernameResponse>(
       {
-        available: !isTaken,
-        message: isTaken ? 'Username is already taken' : 'Username is available',
+        available: isAvailable,
+        message: isAvailable ? 'Username is available' : 'Username is already taken',
       },
       { status: 200 }
     );
