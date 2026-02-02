@@ -74,3 +74,110 @@ export function validateUsername(username: string): ValidationResult {
 export function normalizeUsername(username: string): string {
   return username.toLowerCase().trim();
 }
+
+/**
+ * Email validation using a simple regex pattern
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Validates email format
+ */
+export function validateEmail(email: string): ValidationResult {
+  if (!email || email.trim() === '') {
+    return {
+      isValid: false,
+      error: 'Email is required',
+    };
+  }
+
+  if (!EMAIL_PATTERN.test(email)) {
+    return {
+      isValid: false,
+      error: 'Please enter a valid email address',
+    };
+  }
+
+  return {
+    isValid: true,
+    error: null,
+  };
+}
+
+/**
+ * Password requirements:
+ * - Minimum 8 characters
+ * - At least one uppercase letter
+ * - At least one lowercase letter
+ * - At least one number
+ */
+const PASSWORD_MIN_LENGTH = 8;
+
+/**
+ * Validates password strength
+ */
+export function validatePassword(password: string): ValidationResult {
+  if (!password) {
+    return {
+      isValid: false,
+      error: 'Password is required',
+    };
+  }
+
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    return {
+      isValid: false,
+      error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters`,
+    };
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one uppercase letter',
+    };
+  }
+
+  if (!/[a-z]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one lowercase letter',
+    };
+  }
+
+  if (!/[0-9]/.test(password)) {
+    return {
+      isValid: false,
+      error: 'Password must contain at least one number',
+    };
+  }
+
+  return {
+    isValid: true,
+    error: null,
+  };
+}
+
+/**
+ * Validates that confirm password matches password
+ */
+export function validateConfirmPassword(password: string, confirmPassword: string): ValidationResult {
+  if (!confirmPassword) {
+    return {
+      isValid: false,
+      error: 'Please confirm your password',
+    };
+  }
+
+  if (password !== confirmPassword) {
+    return {
+      isValid: false,
+      error: 'Passwords do not match',
+    };
+  }
+
+  return {
+    isValid: true,
+    error: null,
+  };
+}

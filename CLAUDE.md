@@ -13,6 +13,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Framework**: Next.js 16.0.1 (App Router, React Server Components)
 - **React**: 19.2.0
 - **TypeScript**: 5.x (strict mode enabled)
+- **Database**: Supabase (PostgreSQL)
+- **Authentication**: Supabase Auth
+- **Data Fetching**: @tanstack/react-query
 - **Styling**: Tailwind CSS 4 with custom config
 - **UI Components**: Shadcn/UI (New York style)
 - **Icons**: Lucide React
@@ -62,82 +65,202 @@ npx shadcn@latest add button
 
 ---
 
+## Database & Authentication
+
+### Supabase Setup
+
+The project uses **Supabase** for both database (PostgreSQL) and authentication.
+
+**Environment Variables** (`.env.local`):
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### Database Schema
+
+**Tables:**
+
+1. **`profiles`** - User profiles (extends Supabase `auth.users`)
+   - `id` (UUID, FK to auth.users)
+   - `username` (TEXT, UNIQUE)
+   - `display_name` (TEXT)
+   - `bio` (TEXT)
+   - `avatar_url` (TEXT)
+   - `created_at`, `updated_at` (TIMESTAMPTZ)
+
+2. **`reserved_usernames`** - System-reserved usernames
+   - `username` (TEXT, PK)
+   - `reason` (TEXT)
+   - `created_at` (TIMESTAMPTZ)
+
+**Database Functions:**
+- `is_username_available(check_username TEXT)` - Returns boolean, checks both `profiles` and `reserved_usernames`
+
+**Triggers:**
+- `on_auth_user_created` - Auto-creates profile row when user signs up
+- `set_profiles_updated_at` - Updates `updated_at` on profile changes
+
+**Row Level Security (RLS):**
+- Profiles are publicly readable
+- Users can only update their own profile
+- Reserved usernames are publicly readable
+
+### Supabase Clients
+
+Three client configurations for different contexts:
+
+| File | Use Case |
+|------|----------|
+| `lib/supabase/client.ts` | Browser/client components |
+| `lib/supabase/server.ts` | Server Components, API routes |
+| `lib/supabase/middleware.ts` | Next.js middleware (session refresh) |
+
+**Usage:**
+```typescript
+// Client component
+import { createClient } from '@/lib/supabase/client';
+const supabase = createClient();
+
+// Server component or API route
+import { createClient } from '@/lib/supabase/server';
+const supabase = await createClient();
+```
+
+### Authentication Flow
+
+1. **Signup**: User claims username on landing → redirects to `/signup?username=xxx`
+2. **Profile Creation**: Supabase trigger auto-creates profile with username from `user_metadata`
+3. **Session**: Middleware refreshes session on each request
+4. **Protected Routes**: Middleware redirects unauthenticated users from `/settings`, `/dashboard`
+
+**Auth Provider** (`providers/AuthProvider.tsx`):
+- Provides `useAuth()` hook
+- Exposes: `user`, `profile`, `isLoading`, `isAuthenticated`, `signOut()`, `refreshProfile()`
+
+---
+
+## Data Fetching Patterns
+
+### React Query Setup
+
+The app uses `@tanstack/react-query` for client-side data fetching.
+
+**Provider** (`providers/QueryProvider.tsx`):
+- Default staleTime: 1 minute
+- `refetchOnWindowFocus`: disabled
+
+**Usage:**
+```typescript
+import { useQuery } from '@tanstack/react-query';
+
+const { data, isLoading } = useQuery({
+  queryKey: ['profile', userId],
+  queryFn: () => fetchProfile(userId),
+});
+```
+
+### Data Fetching Guidelines
+
+1. **Server Components**: Fetch directly with Supabase server client
+2. **Client Components**: Use React Query for caching/deduplication
+3. **API Routes**: Use Supabase server client, return typed responses
+4. **Real-time**: Use Supabase subscriptions when needed (not yet implemented)
+
+---
+
 ## Architecture
 
 ### Directory Structure
 
 ```
 app/
+  (auth)/                 # Auth route group
+    layout.tsx            # Centered card layout
+    login/page.tsx
+    signup/page.tsx
+    forgot-password/page.tsx
   api/
-    check-username/     # Username availability API endpoint
+    auth/callback/        # Supabase auth callback
       route.ts
-  demo/                 # Demo/preview pages
+    check-username/       # Username availability check
+      route.ts
+  demo/                   # Demo/preview pages
     page.tsx
-  layout.tsx            # Root layout with Geist fonts
-  page.tsx              # Landing page (main entry)
-  globals.css           # Global Tailwind styles
+  layout.tsx              # Root layout with providers
+  page.tsx                # Landing page
 
 components/
-  landing/              # Landing page-specific components
+  auth/                   # Auth form components
+    LoginForm.tsx
+    SignupForm.tsx
+  landing/                # Landing page components
     ExamplesGallery.tsx
     Features.tsx
     Footer.tsx
     Header.tsx
     Hero.tsx
     UsernameClaimForm.tsx
-  ui/                   # Shadcn UI components
+  ui/                     # Shadcn UI components
     button.tsx
     card.tsx
     input.tsx
-  linkit-item.tsx       # Core reusable LinkIt item component
+  linkit-item.tsx         # Core reusable LinkIt item component
 
 lib/
-  utils.ts              # cn() utility for class merging
-  validation.ts         # Username validation logic
+  supabase/               # Supabase client configurations
+    client.ts             # Browser client
+    server.ts             # Server client
+    middleware.ts         # Middleware helper
+  utils.ts                # cn() utility for class merging
+  validation.ts           # Username, email, password validation
+
+providers/
+  AuthProvider.tsx        # Auth context + useAuth() hook
+  QueryProvider.tsx       # React Query provider
 
 types/
-  landing.ts            # Types for landing page (Feature, ExamplePage, etc.)
-  linkit-item.ts        # Types for LinkIt item component
+  auth.ts                 # Auth types (Profile, AuthState, form values)
+  database.ts             # Supabase database types
+  landing.ts              # Landing page types
+  linkit-item.ts          # LinkIt item types
 
 constants/
-  landing.ts            # Landing page data (FEATURES, EXAMPLE_PAGES, NAV_LINKS, etc.)
+  landing.ts              # Landing page data
 
 hooks/
-  useUsernameCheck.ts   # Custom hook for username validation/checking
+  useUsernameCheck.ts     # Username validation/checking hook
+
+middleware.ts             # Auth middleware (session refresh, route protection)
 ```
 
 ### Key Architectural Patterns
 
 **1. Component Organization**
 
-- **Feature-based**: Landing page components are grouped in `components/landing/`
+- **Feature-based**: Components grouped by feature (`components/auth/`, `components/landing/`)
 - **UI primitives**: Reusable Shadcn components in `components/ui/`
-- **Shared components**: Root-level components like `linkit-item.tsx` for cross-feature use
+- **Shared components**: Root-level components for cross-feature use
 
 **2. Type Safety**
 
 - All components use **TypeScript types** (not interfaces) for props
-- Types are **collocated** with components when simple, or centralized in `types/` when shared
-- Example: `LinkitItemProps` is in `types/linkit-item.ts` because it's used across files
+- Database types in `types/database.ts` (can be auto-generated with `npx supabase gen types typescript`)
+- Auth types in `types/auth.ts`
 
-**3. Data Flow**
+**3. Server/Client Boundaries**
 
-- **Constants** are centralized in `constants/` (e.g., `FEATURES`, `EXAMPLE_PAGES`)
-- **API routes** follow Next.js App Router conventions (`app/api/*/route.ts`)
-- **Client hooks** handle async operations (e.g., `useUsernameCheck` for debounced API calls)
+- Most components are **Server Components** by default
+- Client components marked with `'use client'`
+- Auth forms, interactive components are client-side
+- API routes use server-side Supabase client
 
 **4. Styling Patterns**
 
 - **Tailwind CSS 4** with `@tailwindcss/postcss`
-- **Class variance authority (CVA)** for component variants (see `linkit-item.tsx`)
-- **cn()** utility (from `lib/utils.ts`) for conditional class merging
+- **Class variance authority (CVA)** for component variants
+- **cn()** utility for conditional class merging
 - **Framer Motion** for animations
-
-**5. Server/Client Boundaries**
-
-- Most components are **Server Components** by default
-- Client components are marked with `'use client'` (e.g., `linkit-item.tsx`, `UsernameClaimForm.tsx`)
-- API routes use **Next.js Route Handlers** (`app/api/*/route.ts`)
 
 ---
 
@@ -159,19 +282,18 @@ Imports are automatically sorted via `@trivago/prettier-plugin-sort-imports`:
 
 ### Component Props
 
-- Use **type** (not interface) for component props unless they're overly complex
+- Use **type** (not interface) for component props
 - **Collocate** props type with the component when it's only used in one file
-- Example from `linkit-item.tsx`:
+- Example:
 
 ```typescript
-export type LinkitItemProps = {
-  children: React.ReactNode;
-  size?: LinkitItemSize;
-  onSizeChange?: (size: LinkitItemSize) => void;
-  onDelete?: () => void;
-  className?: string;
-  disabled?: boolean;
+type LoginFormProps = {
+  redirectTo?: string;
 };
+
+export function LoginForm({ redirectTo }: LoginFormProps) {
+  // ...
+}
 ```
 
 ### Path Aliases
@@ -180,54 +302,21 @@ Uses `@/*` for absolute imports (configured in `tsconfig.json`):
 
 ```typescript
 import { cn } from '@/lib/utils';
-import type { LinkitItemProps } from '@/types/linkit-item';
+import type { Profile } from '@/types/auth';
 import { Button } from '@/components/ui/button';
+import { createClient } from '@/lib/supabase/client';
 ```
 
 ### Validation Pattern
 
-Username validation is split into two layers:
+Validation functions are centralized in `lib/validation.ts`:
 
-1. **Client-side**: `lib/validation.ts` exports `validateUsername()` and `normalizeUsername()`
-2. **Server-side**: API route (`app/api/check-username/route.ts`) reuses the same validators
+- `validateUsername()` - 3-30 chars, alphanumeric + hyphens/underscores
+- `validateEmail()` - Basic email format
+- `validatePassword()` - Min 8 chars, uppercase, lowercase, number
+- `validateConfirmPassword()` - Matches password
 
-**Rules:**
-
-- 3-30 characters
-- Alphanumeric, hyphens, underscores only
-- Cannot start/end with hyphen or underscore
-- Case-insensitive
-
----
-
-## Component Patterns
-
-### LinkIt Item Component
-
-The core reusable component for displaying content blocks in a masonry-style layout.
-
-**Features:**
-
-- 5 size variants: `xs`, `sm`, `md`, `lg`, `xl`
-- Hover controls: resize toolbar (bottom) and delete button (top-left)
-- Controlled/uncontrolled state support
-- Uses CVA for variant styling
-
-**Usage:**
-
-```tsx
-<LinkitItem size="md" onSizeChange={handleResize} onDelete={handleDelete}>
-  {/* Content here */}
-</LinkitItem>
-```
-
-### Custom Hooks
-
-**`useUsernameCheck`** (in `hooks/useUsernameCheck.ts`):
-
-- Debounced username validation
-- Calls `/api/check-username` endpoint
-- Returns `{ username, setUsername, isValid, isChecking, isAvailable, error }`
+Used both client-side (forms) and server-side (API routes).
 
 ---
 
@@ -235,20 +324,47 @@ The core reusable component for displaying content blocks in a masonry-style lay
 
 ### `GET /api/check-username?username=<username>`
 
-**Response:**
+Checks username availability against Supabase.
 
+**Response:**
 ```typescript
-{
-  available: boolean;
-  message?: string;
-}
+{ available: boolean; message?: string; }
 ```
 
-**Behavior:**
+### `GET /api/auth/callback`
 
-- Validates format using `validateUsername()`
-- Checks against mock list of reserved usernames (in production, query DB)
-- Returns 400 for invalid format, 200 for valid check
+Handles Supabase auth callbacks (email confirmation, OAuth).
+Exchanges code for session, redirects to user's profile.
+
+---
+
+## Authentication Pages
+
+### Login (`/login`)
+- Email/password form
+- Links to forgot-password and signup
+- Redirects to user's profile on success
+
+### Signup (`/signup`)
+- Accepts `?username` query param (pre-fills from landing page claim)
+- Username, email, password, confirm password
+- Real-time username availability check
+- Creates account with username in `user_metadata`
+
+### Forgot Password (`/forgot-password`)
+- Email input
+- Sends password reset email via Supabase
+
+---
+
+## Middleware
+
+**File:** `middleware.ts`
+
+**Responsibilities:**
+1. Refresh Supabase session on each request
+2. Protect routes (`/settings`, `/dashboard`) - redirect to `/login`
+3. Redirect authenticated users away from auth routes (`/login`, `/signup`)
 
 ---
 
@@ -263,14 +379,9 @@ The core reusable component for displaying content blocks in a masonry-style lay
 
 ### Shadcn Components
 
-Currently installed:
+Currently installed: `button`, `card`, `input`
 
-- `button`
-- `card`
-- `input`
-
-To add more, use:
-
+To add more:
 ```bash
 npx shadcn@latest add <component>
 ```
@@ -283,7 +394,6 @@ npx shadcn@latest add <component>
 
 - Config: `eslint-config-next` (core web vitals + TypeScript)
 - Extends Prettier for formatting compatibility
-- Custom ignores: `.next/`, `out/`, `build/`, `next-env.d.ts`
 
 ### Prettier
 
@@ -296,62 +406,57 @@ npx shadcn@latest add <component>
 
 ## When Adding Features
 
-### New Components
+### New Database Tables
 
-1. Determine if it's feature-specific (→ `components/landing/`) or reusable (→ `components/` or `components/ui/`)
-2. Use **type** for props, colocate unless shared
-3. Mark client components with `'use client'`
-4. Use `cn()` for conditional classes
-5. Follow import order convention
+1. Add table in Supabase SQL Editor
+2. Update `types/database.ts` (or run `npx supabase gen types typescript`)
+3. Add RLS policies
+4. Create API routes or direct Supabase queries as needed
 
 ### New API Routes
 
 1. Place in `app/api/<route-name>/route.ts`
-2. Use Next.js `NextRequest`/`NextResponse`
+2. Use `createClient` from `@/lib/supabase/server`
 3. Define response types in `types/`
-4. Reuse validation logic from `lib/validation.ts`
-5. Return typed JSON responses
+4. Return typed JSON responses
 
-### New Types
+### New Protected Pages
 
-1. Place in `types/` directory
-2. Use **type** (not interface) for consistency
-3. Export individual types, not namespaces
-4. Document complex types with JSDoc comments
+1. Add route to `PROTECTED_ROUTES` in `middleware.ts`
+2. Use `useAuth()` hook for user/profile data
+3. Handle loading states
 
-### New Utilities
+### New Auth Features
 
-1. Place in `lib/` directory
-2. Export pure functions
-3. Include JSDoc comments explaining purpose and usage
-4. Reuse across server and client when possible
+1. Use Supabase Auth methods (`supabase.auth.*`)
+2. Update `AuthProvider` if new state needed
+3. Add to middleware if route protection needed
 
 ---
 
 ## Current State
 
-**Landing Page:**
+**Implemented:**
+- Landing page with username claim
+- Auth pages (login, signup, forgot-password)
+- Supabase integration (auth + database)
+- Username availability check (real DB)
+- Session management via middleware
+- Auth context with `useAuth()` hook
 
-- Hero with username claim form
-- Features section (6 features from `constants/landing.ts`)
-- Examples gallery (4 example pages)
-- Footer with navigation links
-
-**Demo Page:**
-
-- Located at `/demo`
-- Showcases `LinkitItem` component with interactive resizing
-
-**No Database Yet:**
-
-- Username checks use mock data (`TAKEN_USERNAMES` array in API route)
-- In production, replace with real DB queries
+**Not Yet Implemented:**
+- User profile pages (`/[username]`)
+- Dashboard/settings pages
+- OAuth providers (Google, GitHub)
+- Password reset completion page
+- Link management (CRUD)
+- Real-time updates
 
 ---
 
 ## Notes
 
-- **No tests yet**: Consider adding Jest/React Testing Library when implementing new features
-- **Mock data**: Example pages and reserved usernames are hardcoded; replace with dynamic data later
-- **Fonts**: Uses Geist Sans and Geist Mono from Google Fonts via `next/font`
-- **React 19**: Takes advantage of React Server Components and modern patterns
+- **Database migrations**: See `phase-3-auth-implementation.md` for full SQL
+- **Type generation**: Run `npx supabase gen types typescript` to update database types
+- **No tests yet**: Consider adding Jest/React Testing Library
+- **React 19**: Uses Server Components and modern patterns
