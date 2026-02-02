@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { ArrowLeft, Mail } from 'lucide-react';
 
 import { validateEmail } from '@/lib/validation';
-import { createClient } from '@/lib/supabase/client';
+
+import { useResetPassword } from '@/hooks/mutations';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -21,42 +22,33 @@ import { Input } from '@/components/ui/input';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const supabase = createClient();
+  const resetPasswordMutation = useResetPassword({
+    onSuccess: () => {
+      setIsSubmitted(true);
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setValidationError(null);
 
     // Validate email
     const emailValidation = validateEmail(email);
     if (!emailValidation.isValid) {
-      setError(emailValidation.error);
+      setValidationError(emailValidation.error ?? 'Invalid email');
       return;
     }
 
-    setIsSubmitting(true);
-
-    try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/api/auth/callback?next=/reset-password`,
-      });
-
-      if (resetError) {
-        setError(resetError.message);
-        return;
-      }
-
-      setIsSubmitted(true);
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    resetPasswordMutation.mutate({
+      email,
+      redirectTo: `${window.location.origin}/api/auth/callback?next=/reset-password`,
+    });
   };
+
+  const error = validationError ?? resetPasswordMutation.error?.message ?? null;
 
   if (isSubmitted) {
     return (
@@ -115,15 +107,15 @@ export default function ForgotPasswordPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               aria-invalid={!!error}
-              disabled={isSubmitting}
+              disabled={resetPasswordMutation.isPending}
             />
             {error && (
               <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? 'Sending...' : 'Send reset link'}
+          <Button type="submit" className="w-full" disabled={resetPasswordMutation.isPending}>
+            {resetPasswordMutation.isPending ? 'Sending...' : 'Send reset link'}
           </Button>
         </form>
       </CardContent>

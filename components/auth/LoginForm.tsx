@@ -1,31 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 
-import { mapAuthError } from '@/types/auth';
-
-import { createClient } from '@/lib/supabase/client';
 import { validateEmail } from '@/lib/validation';
+
+import { useSignIn } from '@/hooks/mutations';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export function LoginForm() {
-  const router = useRouter();
-  const supabase = createClient();
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     email?: string;
     password?: string;
   }>({});
+
+  const signInMutation = useSignIn();
 
   const validateForm = (): boolean => {
     const errors: { email?: string; password?: string } = {};
@@ -46,38 +41,15 @@ export function LoginForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
 
     if (!validateForm()) {
       return;
     }
 
-    setIsSubmitting(true);
-
-    try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) {
-        const authError = mapAuthError(signInError);
-        setError(authError.message);
-        return;
-      }
-
-      if (data.user) {
-        // Get username from user metadata and redirect to profile
-        const username = data.user.user_metadata?.username;
-        router.push(username ? `/${username}` : '/');
-        router.refresh();
-      }
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    signInMutation.mutate({ email, password });
   };
+
+  const error = signInMutation.error?.message ?? null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -105,7 +77,7 @@ export function LoginForm() {
             }
           }}
           aria-invalid={!!fieldErrors.email}
-          disabled={isSubmitting}
+          disabled={signInMutation.isPending}
         />
         {fieldErrors.email && (
           <p className="text-sm text-red-500 dark:text-red-400">{fieldErrors.email}</p>
@@ -130,7 +102,7 @@ export function LoginForm() {
               }
             }}
             aria-invalid={!!fieldErrors.password}
-            disabled={isSubmitting}
+            disabled={signInMutation.isPending}
             className="pr-10"
           />
           <button
@@ -148,8 +120,8 @@ export function LoginForm() {
       </div>
 
       {/* Submit button */}
-      <Button type="submit" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? (
+      <Button type="submit" className="w-full" disabled={signInMutation.isPending}>
+        {signInMutation.isPending ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
             Logging in...

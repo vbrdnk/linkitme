@@ -1,16 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 import { Check, Eye, EyeOff, Loader2, X } from 'lucide-react';
 
-import { mapAuthError } from '@/types/auth';
-
-import { createClient } from '@/lib/supabase/client';
 import { validateConfirmPassword, validateEmail, validatePassword } from '@/lib/validation';
 
 import { useUsernameCheck } from '@/hooks/useUsernameCheck';
+import { useSignUp } from '@/hooks/mutations';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,9 +17,6 @@ type SignupFormProps = {
 };
 
 export function SignupForm({ claimedUsername }: SignupFormProps) {
-  const router = useRouter();
-  const supabase = createClient();
-
   const {
     value: username,
     isValid: isUsernameValid,
@@ -37,13 +31,13 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     email?: string;
     password?: string;
     confirmPassword?: string;
   }>({});
+
+  const signUpMutation = useSignUp();
 
   // Pre-fill username if provided via URL param
   useEffect(() => {
@@ -83,11 +77,9 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
 
     // Check username is available
     if (!isUsernameValid || !isUsernameAvailable) {
-      setError('Please choose an available username');
       return;
     }
 
@@ -95,42 +87,12 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
       return;
     }
 
-    setIsSubmitting(true);
-
-    try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username,
-            display_name: username, // Default display name to username
-          },
-        },
-      });
-
-      if (signUpError) {
-        const authError = mapAuthError(signUpError);
-        setError(authError.message);
-        return;
-      }
-
-      if (data.user) {
-        // If email confirmation is required, the session might be null
-        if (data.session) {
-          // User is signed in, redirect to their profile
-          router.push(`/${username}`);
-          router.refresh();
-        } else {
-          // Email confirmation required
-          router.push(`/login?message=check-email&email=${encodeURIComponent(email)}`);
-        }
-      }
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    signUpMutation.mutate({
+      email,
+      password,
+      username,
+      displayName: username,
+    });
   };
 
   const getUsernameStatus = () => {
@@ -146,6 +108,8 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
     }
     return null;
   };
+
+  const error = signUpMutation.error?.message ?? null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -172,7 +136,7 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
             value={username}
             onChange={(e) => handleUsernameChange(e.target.value)}
             aria-invalid={!!usernameError}
-            disabled={isSubmitting}
+            disabled={signUpMutation.isPending}
             className="pl-[7.5rem] pr-10"
           />
           <div className="absolute inset-y-0 right-0 flex items-center pr-3">
@@ -204,7 +168,7 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
             }
           }}
           aria-invalid={!!fieldErrors.email}
-          disabled={isSubmitting}
+          disabled={signUpMutation.isPending}
         />
         {fieldErrors.email && (
           <p className="text-sm text-red-500 dark:text-red-400">{fieldErrors.email}</p>
@@ -229,7 +193,7 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
               }
             }}
             aria-invalid={!!fieldErrors.password}
-            disabled={isSubmitting}
+            disabled={signUpMutation.isPending}
             className="pr-10"
           />
           <button
@@ -267,7 +231,7 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
               }
             }}
             aria-invalid={!!fieldErrors.confirmPassword}
-            disabled={isSubmitting}
+            disabled={signUpMutation.isPending}
             className="pr-10"
           />
           <button
@@ -285,8 +249,8 @@ export function SignupForm({ claimedUsername }: SignupFormProps) {
       </div>
 
       {/* Submit button */}
-      <Button type="submit" className="w-full" disabled={isSubmitting || !isFormValid}>
-        {isSubmitting ? (
+      <Button type="submit" className="w-full" disabled={signUpMutation.isPending || !isFormValid}>
+        {signUpMutation.isPending ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
             Creating account...
